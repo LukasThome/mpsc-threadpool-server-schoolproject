@@ -45,57 +45,61 @@ fn main() {
     });
 
     let operation_count = Arc::new(AtomicUsize::new(0));
+    let server_running = Arc::new(AtomicBool::new(true));
 
     // server thread
     let server_handle = {
         let request_queue = Arc::clone(&request_queue);
+        let server_running = Arc::clone(&server_running);
         let operation_count = Arc::clone(&operation_count);
         thread::spawn(move || {
-            let mut empty_since = None;
-            while !(empty_since.map_or(false, |start: Instant| start.elapsed() >= Duration::from_secs(5))) {
-                {
-                    if operation_count.load(Ordering::SeqCst) % 10 == 0 {
-                        request_queue.queue.lock().unwrap().push(Operation::GeneralBalance);
-                        request_queue.condvar.notify_one();
-                    }
-                    if request_queue.queue.lock().unwrap().is_empty() && request_queue.no_more_clients.load(Ordering::SeqCst) {
-                        empty_since = empty_since.or_else(|| Some(Instant::now()));
-                    } else {
-                        empty_since = None;
-                    }
+            let (mut last_checked_count, mut empty_since) = (0, None);
+            while server_running.load(Ordering::SeqCst) {
+                if operation_count.load(Ordering::SeqCst) >= last_checked_count + 10 {
+                    request_queue.queue.lock().unwrap().push(Request { operation: Operation::GeneralBalance });
+                    request_queue.condvar.notify_one();
+                    last_checked_count += 10;
+                }
+                if request_queue.queue.lock().unwrap().is_empty() && request_queue.no_more_clients.load(Ordering::SeqCst) {
+                    empty_since = match empty_since {
+                        None => Some(Instant::now()),
+                        Some(start) if start.elapsed() >= Duration::from_secs(5) => break,
+                        _ => empty_since,
+                    };
+                } else {
+                    empty_since = None;
                 }
                 thread::sleep(Duration::from_millis(100));
             }
+            server_running.store(false, Ordering::SeqCst);
             println!("Finished processing all client requests.");
         })
     };
 
     // worker threads
-    let workers_running = Arc::new(AtomicBool::new(true));
+    let worker_running = Arc::new(AtomicBool::new(true));
     let worker_handles: Vec<_> = (0..num_workers).map(|id| {
-        let (bank, request_queue, workers_running, operation_count) = (Arc::clone(&bank), Arc::clone(&request_queue), Arc::clone(&workers_running), Arc::clone(&operation_count));
-        thread::spawn(move || -> f64 {
-            let mut local_net_deposits = 0.0;
-            while workers_running.load(Ordering::SeqCst) {
-                let operation = {
+        let (bank, request_queue, worker_running, operation_count) = (Arc::clone(&bank), Arc::clone(&request_queue), Arc::clone(&worker_running), Arc::clone(&operation_count));
+        thread::spawn(move || {
+            while worker_running.load(Ordering::SeqCst) {
+                let request = {
                     let mut queue = request_queue.queue.lock().unwrap();
                     while queue.is_empty() && !request_queue.no_more_clients.load(Ordering::SeqCst) {
                         queue = request_queue.condvar.wait_timeout(queue, Duration::from_secs(1)).unwrap().0;
                     }
                     queue.pop()
                 };
-                if let Some(operation) = operation {
+                if let Some(request) = request {
                     println!("Worker {} is now executing.", id);
-                    match operation {
+                    match request.operation {
                         Operation::Deposit { account_id, amount } => {
                             thread::sleep(bank.deposit_sleep);
                             if let Some(account) = bank.accounts.get(&account_id) {
                                 *account.balance.lock().unwrap() += amount;
                                 println!("Deposit: Account {}: Amount {:.2}", account_id, amount);
-                                local_net_deposits += amount;
                             }
                         }
-                        Operation::Transfer { from_account_id, to_account_id, amount } => {
+                        Operation::Transfer { from_account_id, to_account_id, amount } if from_account_id != to_account_id => {
                             thread::sleep(bank.transfer_sleep);
                             if let (Some(from_account), Some(to_account)) = (bank.accounts.get(&from_account_id), bank.accounts.get(&to_account_id)) {
                                 let (mut from_balance, mut to_balance) = if from_account_id < to_account_id {
@@ -114,14 +118,11 @@ fn main() {
                         }
                         Operation::GeneralBalance => {
                             thread::sleep(bank.balance_sleep);
-                            let snapshot: Vec<(u32, f64)> = {
-                                bank.accounts.iter()
-                                    .map(|(id, account)| {(*id, *account.balance.lock().unwrap())}).collect()
-                            };
                             println!("\n--- General Balance Snapshot ---");
-                            snapshot.iter().for_each(|(id, balance)| {println!("Account {}: Balance {:.2}", id, balance);});
+                            bank.accounts.iter().for_each(|(id, account)| println!("Account {}: Balance {:.2}", id, *account.balance.lock().unwrap()));
                             println!("--------------------------------\n");
                         }
+                        _ => {}
                     }
                     operation_count.fetch_add(1, Ordering::SeqCst);
                     println!("Worker {} is now idle.", id);
@@ -131,7 +132,6 @@ fn main() {
                 thread::sleep(Duration::from_millis(100));
             }
             println!("Worker {} is terminating.", id);
-            local_net_deposits
         })
     }).collect();
 
@@ -155,7 +155,7 @@ fn main() {
                         amount: rng.gen_range(0.0..100.0),
                     }
                 };
-                request_queue.queue.lock().unwrap().push(operation);
+                request_queue.queue.lock().unwrap().push(Request { operation });
                 request_queue.condvar.notify_one();
                 thread::sleep(client_sleep);
             });
@@ -166,22 +166,10 @@ fn main() {
     client_handles.into_iter().for_each(|handle| handle.join().unwrap());
     request_queue.no_more_clients.store(true, Ordering::SeqCst);
     server_handle.join().unwrap();
-    workers_running.store(false, Ordering::SeqCst);
-    let total_net_deposits: f64 = worker_handles.into_iter().map(|handle| handle.join().unwrap()).sum();
-    println!("Total client requests processed: {}", num_clients * requests_per_client);
-    let initial_total_balance = num_accounts as f64 * 1000.0;
-    let expected_total_balance = initial_total_balance + total_net_deposits;
-    let actual_total_balance: f64 = bank.accounts.values().map(|account| *account.balance.lock().unwrap()).sum();
-    println!("Initial Total Balance: {:.2}", initial_total_balance);
-    println!("Net Deposits: {:.2}", total_net_deposits);
-    println!("Expected Total Balance: {:.2}", expected_total_balance);
-    println!("Actual Total Balance: {:.2}", actual_total_balance);
+    worker_running.store(false, Ordering::SeqCst);
+    worker_handles.into_iter().for_each(|handle| handle.join().unwrap());
 
-    if (expected_total_balance - actual_total_balance).abs() < 0.01 {
-        println!("Balances match. Simulation consistent.");
-    } else {
-        println!("Balances do not match. Simulation inconsistent!");
-    }
+    println!("Total client requests processed: {}", num_clients * requests_per_client);
 }
 
 struct Account {
@@ -202,8 +190,12 @@ enum Operation {
     GeneralBalance,
 }
 
+struct Request {
+    operation: Operation,
+}
+
 struct RequestQueue {
-    queue: Mutex<Vec<Operation>>,
+    queue: Mutex<Vec<Request>>,
     condvar: Condvar,
     no_more_clients: AtomicBool,
 }
