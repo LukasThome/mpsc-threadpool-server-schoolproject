@@ -34,4 +34,24 @@ cargo run -- --help
 ```
 
 ## Observações Conforme Parametrização Variada
-TODO
+
+
+1. **Aumento do Número de Contas**:
+   - Com mais contas, o uso de `Mutex` se intensifica, aumentando o tempo de bloqueio para leitura e escrita.
+   - Em cenários com um número muito alto de contas, a frequência de operações de balanceamento geral deve ser monitorada, pois cada operação realiza uma travada em cada conta individualmente, o que pode resultar em aumento do tempo de resposta.
+
+2. **Variação no Número de Threads (Clientes e Workers)**:
+   - **Mais Clientes**: Aumenta a taxa de geração de operações, potencialmente sobrecarregando a fila de requisições. Um número excessivo de clientes pode causar atrasos, uma vez que os `workers` podem não conseguir processar as operações na mesma taxa de chegada.
+   - **Mais Workers**: Com mais `workers`, o sistema consegue processar as operações mais rapidamente, mas aumenta o risco de contenção no acesso à fila de requisições e às contas. Recomenda-se balancear o número de `workers` de acordo com a quantidade de operações esperada.
+
+3. **Intervalo de `Timeout` para Operações**:
+   - Reduzir o tempo de `timeout` pode melhorar a responsividade ao liberar rapidamente recursos bloqueados, mas também pode aumentar a chance de falhas de operação em sistemas com carga alta.
+   - Um `timeout` mais longo pode ajudar a garantir que operações complexas sejam completadas, mas também pode resultar em bloqueios mais longos em recursos compartilhados, afetando a performance.
+
+4. **Frequência de Balanceamento Geral**:
+   - Ajustar a frequência do balanço geral (a cada 10 operações, por exemplo) pode impactar o desempenho do servidor. Em sistemas com alta carga de transações, diminuir a frequência ajuda a reduzir o impacto no processamento.
+   - Em sistemas com baixa frequência de requisições, aumentar a frequência de balanço geral pode fornecer feedback mais imediato do estado do banco, útil para auditoria e monitoramento.
+
+5. **Tamanho da Fila de Requisições**:
+   - Em cenários de alta concorrência, uma fila muito pequena pode ser insuficiente para armazenar todas as requisições, gerando congestionamento e atrasos no atendimento das operações.
+   - Com uma fila maior, o sistema tem maior capacidade de absorver picos de requisições, mas aumenta o uso de memória e a complexidade para sincronizar as operações.
