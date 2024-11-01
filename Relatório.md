@@ -27,7 +27,7 @@ Uso de `Mutex` para proteger as contas e as filas de requisições e interna, al
 Adição de `thread::sleep` nas operações para simular tempo de execução e demonstrar o comportamento concorrente.
 
 ## Instruções de Execução
-Para compilar o código, é necessário ter o Rust instalado. Caso ainda não tenha o Rust instalado, siga as instruções disponíveis no site oficial [rust-lang.org](https://www.rust-lang.org/tools/install). Uma vez instalado, navegue até o diretório onde o arquivo de código está localizado e execute o seguinte comando:
+Para compilar o código, é necessário ter o Rust instalado. Caso ainda não tenha o Rust instalado, siga as instruções disponíveis no site oficial [rust-lang.org](https://www.rust-lang.org/tools/install) (recomendado) ou tente `apt-get install rust`. Uma vez instalado, navegue até o diretório onde o arquivo de código está localizado e execute o seguinte comando:
 
 ```bash
 cargo run -- --help
