@@ -8,7 +8,7 @@ use clap::{Arg, Command};
 fn main() {
     let matches = Command::new("Bank Server Simulation")
         .about("Simulates a bank server handling client requests with worker threads")
-        .override_usage("cargo run -- --workers <workers> --clients <clients> --accounts <accounts> --requests <requests> --deposit-sleep <ms> --transfer-sleep <ms> --balance-sleep <ms> --client-sleep <ms>")
+        .override_usage("cargo run --release -- --workers <workers> --clients <clients> --accounts <accounts> --requests <requests> --deposit-sleep <ms> --transfer-sleep <ms> --balance-sleep <ms> --client-sleep <ms>")
         .arg(Arg::new("workers").long("workers").default_value("5").value_parser(clap::value_parser!(usize)).help("Number of worker threads in the thread pool"))
         .arg(Arg::new("clients").long("clients").default_value("10").value_parser(clap::value_parser!(usize)).help("Number of client threads generating requests"))
         .arg(Arg::new("accounts").long("accounts").default_value("100").value_parser(clap::value_parser!(u32)).help("Number of bank accounts"))
