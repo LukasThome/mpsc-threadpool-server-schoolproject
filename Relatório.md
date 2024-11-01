@@ -1,7 +1,7 @@
 ## Principais Decisões de Implementação
 
 ### Estrutura de Contas
-Utilização de `HashMap<u32, Account>` com saldo protegido por `Mutex<f64>`, permitindo operações simultâneas sem condição de corrida.
+Utilização de `HashMap<u32, Account>` com saldo protegido por `Mutex<f64>`.
 
 ### Operações e Sincronização
 - **Depósito**: Aceita valores positivos e negativos para operações de depósito e saque, protegida por mutex.
@@ -18,7 +18,7 @@ O sistema utiliza duas filas:
   
 - **Fila Interna**: Utilizada pelas threads do pool de trabalhadores. O servidor adiciona operações consumidas da fila de requisições e insere também periodicamente a operação de balanço geral.
 
-Ambas as filas utilizam `Mutex` para proteção e `Condvar` para notificação das threads trabalhadoras.
+Ambas as filas utilizam `Mutex` para proteção e a fila interna usa `Condvar` para notificação das threads trabalhadoras.
 
 ### Controle de Concorrência
 Uso de `Mutex` para proteger as contas e as filas de requisições e interna, além de `AtomicBool` para controle de estados globais.
